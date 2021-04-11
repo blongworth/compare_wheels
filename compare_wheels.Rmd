@@ -1,0 +1,53 @@
+---
+title: "Compare wheels"
+output: html_notebook
+---
+
+Compare wheels
+
+# TODO
+
+* load data for two wheels
+* compare data with simple differences
+* do runs agree within error?
+* compare standards/secondaries by agreement with consensus
+* summarize results
+* plot results
+
+# Libraries
+
+```{r}
+library(amstools)
+library(tidyverse)
+```
+
+# load data
+
+```{r}
+wheels <- c("CFAMS040121", "USAMS040321")
+df <- getWheel(wheels)
+```
+
+# Compare data
+
+```{r}
+# widen to compare a variable
+# generalize to function that takes data and variable to compare as input
+lbc_diff <- df %>%
+  pivot_wider(c(wheel, sample_name, wheel_pos), 
+              names_from = wheel, values_from = fm_corr) %>%
+  mutate(fm_diff = CFAMS040121 - USAMS040321)
+
+lbc_diff %>%
+  filter(!near(CFAMS040121, USAMS040321, tol = 1E-06)) %>%
+  arrange(-abs(fm_diff))
+
+```
+
+```{r}
+
+ggplot(lbc_diff, aes(CFAMS040121, fm_diff)) +
+  geom_point()
+```
+
+
