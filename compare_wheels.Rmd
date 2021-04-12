@@ -1,53 +1,134 @@
 ---
 title: "Compare wheels"
-output: html_notebook
+output:
+  html_document:
+    df_print: paged
 ---
 
-Compare wheels
+Compare wheels: CFAMS040121 rerun on USAMS as USAMS040321
 
 # TODO
 
-* load data for two wheels
-* compare data with simple differences
 * do runs agree within error?
-* compare standards/secondaries by agreement with consensus
+* compare standards
+* secondaries by agreement with consensus
 * summarize results
 * plot results
 
-# Libraries
+# Libraries and functions
 
 ```{r}
 library(amstools)
 library(tidyverse)
+library(odbc)
+
+# function to return fm_consensus for a list of tp_nums or NA if none
+getCons <- function(tp_num) {
+  db <- conNOSAMS()
+  query <- glue::glue_sql("SELECT Fm_cons, Fm_NOSAM_avg
+                     FROM standards
+                     JOIN target ON target.rec_num = standards.rec_num
+                     WHERE tp_num = {tp_num}",
+                    .con = db)
+  df <- dbGetQuery(db, query)
+  ans <- ifelse(!is.na(df$Fm_cons), df$Fm_cons, df$Fm_NOSAM_avg)
+  if (is.logical(ans)) {
+    NA
+  } else {
+    ans
+  }
+}
 ```
 
 # load data
 
 ```{r}
 wheels <- c("CFAMS040121", "USAMS040321")
-df <- getWheel(wheels)
+df <- getWheel(wheels) %>% 
+  mutate(fm_consensus = map_dbl(tp_num, getCons),
+         sys = str_sub(wheel, end = 5),
+         lbdiff = fm_corr - fm_consensus,
+         mbdiff = fm_mb_corr - fm_consensus)
 ```
 
 # Compare data
 
 ```{r}
-# widen to compare a variable
-# generalize to function that takes data and variable to compare as input
-lbc_diff <- df %>%
-  pivot_wider(c(wheel, sample_name, wheel_pos), 
-              names_from = wheel, values_from = fm_corr) %>%
-  mutate(fm_diff = CFAMS040121 - USAMS040321)
+# function that takes data and variable to compare as input
+diff_var <- function(df, var) {
+  df %>% 
+    pivot_wider(c(wheel, sample_name, wheel_pos), 
+                names_from = wheel, values_from = {{ var }}) %>%
+    mutate(fm_diff = CFAMS040121 - USAMS040321)
+}
 
+mbc_diff <- diff_var(df, fm_mb_corr)
+lbc_diff <- diff_var(df, fm_corr)
+```
+
+### Compare lbc data
+
+```{r}
 lbc_diff %>%
   filter(!near(CFAMS040121, USAMS040321, tol = 1E-06)) %>%
   arrange(-abs(fm_diff))
-
 ```
 
 ```{r}
-
 ggplot(lbc_diff, aes(CFAMS040121, fm_diff)) +
   geom_point()
 ```
 
+### Compare MBC data
 
+```{r}
+mbc_diff %>%
+  filter(!near(CFAMS040121, USAMS040321, tol = 1E-06)) %>%
+  arrange(-abs(fm_diff))
+```
+
+```{r}
+ggplot(mbc_diff, aes(CFAMS040121, fm_diff)) +
+  geom_point()
+```
+
+
+# Agreement with consensus
+
+
+## Standards
+
+```{r}
+df %>% 
+  filter(sample_type == "S") %>%
+  group_by(sys) %>% 
+  summarize(across(c(fm_corr, sig_fm_corr), list(mean = mean, sd = sd)))
+
+```
+
+## Secondaries
+
+
+Table and mean diff
+
+```{r}
+df %>% 
+  filter(!is.na(fm_consensus),
+         !is.na(mbdiff)) %>% 
+  select(sys, sample_name, wheel_pos, fm_consensus, mbdiff)
+```
+
+```{r}
+df %>% 
+  ggplot(aes(fm_consensus, lbdiff, color = sys)) +
+  geom_hline(yintercept = 0) +
+  geom_point()
+```
+
+
+```{r}
+df %>% 
+  ggplot(aes(fm_consensus, mbdiff, color = sys)) +
+  geom_hline(yintercept = 0) +
+  geom_point()
+```
