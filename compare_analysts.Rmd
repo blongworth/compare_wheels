@@ -1,0 +1,63 @@
+---
+title: "Compare_analysts"
+author: "Brett Longworth"
+date: "5/11/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+options(digits=4)
+```
+
+Load libraries and wheel data
+
+```{r}
+library(amstools)
+library(tidyverse)
+db <- conNOSAMS()
+df <- getWheel("CFAMS050621")
+
+```
+
+Check flagging and sample type
+
+```{r}
+df %>%
+  filter(sample_type != sample_type_2 | num_runs != num_runs_2)
+```
+
+Check norm ratios
+
+```{r}
+df %>% 
+  filter(!near(norm_ratio, norm_ratio_2))
+```
+
+Check LBC
+
+```{r}
+df %>% 
+  select(wheel_pos, norm_ratio, fm_corr, fm_corr_2, lg_blk_fm, lg_blk_fm_2) %>% 
+  #filter(!near(fm_corr, fm_corr_2, tol = 0.00001)) %>% 
+  mutate(fm_diff = fm_corr - fm_corr_2,
+         lg_blk_diff = lg_blk_fm - lg_blk_fm_2,
+         fm_corr_r = doLBC(norm_ratio, lg_blk_fm, 1.0398),
+         fm_corr_r_2 = doLBC(norm_ratio, lg_blk_fm_2, 1.0398),
+         fm_corr_r_diff = fm_corr_r - fm_corr_r_2) %>% 
+  arrange(desc(fm_diff))
+```
+
+Something very funky is going on with the LBC for the first analyst.
+
+Testing change after blank correct with test db
+
+```{r}
+dt <- getWheel("CFAMS050621", TRUE)
+dt %>% 
+  select(wheel_pos, norm_ratio, fm_corr, lg_blk_fm) %>% 
+  mutate(fm_corr_r = doLBC(norm_ratio, lg_blk_fm, 1.0398),
+         fm_corr_r_diff = fm_corr - fm_corr_r) %>% 
+  arrange(desc(abs(fm_corr_r_diff)))
+```
+
