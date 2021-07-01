@@ -1,0 +1,95 @@
+---
+title: "Check blanks"
+author: "Brett Longworth"
+date: "2021-06-28"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Check for issue where `fm_corr` is different than the LBC Fm calculated using `norm_ratio` and `lg_blk_fm`. These values from the DB and the function below should be what SNICSer uses to produce `fm_corr`. Differences in stored values may be caused by editing flagging of standards after blank correction, before writing to the DB.
+
+```{r, message = FALSE}
+library(amstools)
+library(tidyverse)
+library(dbplyr)
+library(knitr)
+
+options(list(digits = 4, scipen = 4))
+```
+
+Create database connection and look at a few lines from snics_results.
+
+```{r}
+db <- conNOSAMS()
+df <- tbl(db, "snics_results")
+
+df %>% 
+  filter(runtime > '2020-01-01') %>% 
+  arrange(runtime) %>% 
+  head()
+```
+
+Find samples where `fm_corr` does not match Fm corrected using `norm_ratio` and `lg_blk_fm` for that sample.
+
+```{r}
+df %>% 
+  select(wheel, wheel_pos, sample_type, 
+         runtime, norm_ratio, lg_blk_fm, fm_corr) %>% 
+  mutate(norm_fm_r = norm_ratio - lg_blk_fm * (1.0398 - norm_ratio) / 1.0398,
+         diff = norm_fm_r - fm_corr) %>%  
+  filter(runtime > '2020-01-01' & 
+         lg_blk_fm > 0 &
+         abs(diff) > 0.000001 &
+           wheel == "CFAMS060221") %>% 
+  arrange(runtime)
+```
+
+Wheels where this is happening.
+
+```{r}
+df %>% 
+  select(wheel, wheel_pos, sample_type, 
+         runtime, analyst1, analyst2, 
+         norm_ratio, lg_blk_fm, fm_corr) %>% 
+  mutate(norm_fm_r = norm_ratio - lg_blk_fm * (1.0398 - norm_ratio) / 1.0398,
+         diff = norm_fm_r - fm_corr) %>% 
+  filter(runtime > '2020-01-01' & 
+         lg_blk_fm > 0 &
+         abs(diff) > 0.0000001,
+         sample_type == "S") %>% 
+  group_by(wheel) %>% 
+  filter(mean(norm_ratio) < 1.05) %>% 
+  summarize(runtime = min(runtime, na.rm = TRUE),
+            diff_mean = mean(diff, na.rm = TRUE)) %>% 
+  arrange(runtime) %>% 
+  kable()
+
+```
+
+
+Checking issue with std ratio in blank correction..
+
+```{r}
+cf62 <- df %>% 
+  select(wheel, wheel_pos, sample_type, 
+         runtime, norm_ratio, lg_blk_fm, fm_corr) %>% 
+  mutate(norm_fm_r = norm_ratio - lg_blk_fm * (1.0398 - norm_ratio) / 1.0398,
+         diff = norm_fm_r - fm_corr) %>%  
+  filter(runtime > '2020-01-01' & 
+         lg_blk_fm > 0 &
+         abs(diff) > 0.000001 &
+           wheel == "CFAMS060221" &
+           wheel_pos > 83) %>% 
+  arrange(wheel_pos)
+
+stdrat <- cf62 %>% 
+  filter(sample_type == "S") %>% 
+  pull(norm_ratio) %>% 
+  mean()
+
+cf62 %>% 
+  mutate(cor_norm_fm_r = norm_ratio - lg_blk_fm *(stdrat - norm_ratio)/stdrat)
+```
